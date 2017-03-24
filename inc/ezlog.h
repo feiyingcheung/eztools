@@ -14,12 +14,15 @@ extern "C" {
 #endif
 
 #define EZLOG_MODNAME_LEN 3
+#define EZLOG_PATH_LEN 64
+#define EZLOG_FILE_PREFIX_LEN 32
 
 typedef struct EZLog_t EZLog_t;
 
 typedef struct _EZLog_InitParam_s {
-    int iMaxLogItem;
-    int iRecycleItem;
+    char aFilePath[EZLOG_PATH_LEN];
+    char aFilePrefix[EZLOG_FILE_PREFIX_LEN];
+    int iMaxLogFile;
 } EZLog_InitParam_t;
 
 typedef enum _EZLogLevel_e {
@@ -29,7 +32,7 @@ typedef enum _EZLogLevel_e {
     EZLOG_DEBUG
 } EZLogLevel_t;
 
-int EZLog_Init(EZLog_t **ppEZLog, EZLog_InitParam_t *pParam);
+int EZLog_Init(EZLog_t **ppEZLog, const EZLog_InitParam_t *pParam);
 int EZLog_Uninit(EZLog_t *pEZLog);
 int vEZLog(EZLog_t *pEZLog, const char aModName[EZLOG_MODNAME_LEN],
            int iLogLevel, const char *fmt, va_list args);
