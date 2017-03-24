@@ -86,6 +86,20 @@ static int iEZLog_GetFileNameByTime(const EZLog_t *pEZLog, char *pFileNameBuf) {
     return 0;
 }
 
+static int iEZLog_WriteFileHeader(const EZLog_t *pEZLog, apr_file_t *pLogFile) {
+    char aHeader[256];
+    apr_time_exp_t tTime;
+    apr_time_exp_lt(&tTime, pEZLog->tCreateTime);
+    snprintf(aHeader, sizeof(aHeader), "-----Header-----\n"
+        "Logger Start at "
+        "%04d-%02d-%02d %02d:%02d:%02d\n"
+        "----------------\n",
+        tTime.tm_year + 1900, tTime.tm_mon + 1, tTime.tm_mday,
+        tTime.tm_hour, tTime.tm_min, tTime.tm_sec);
+    apr_file_write_full(pLogFile, aHeader, strlen(aHeader), NULL);
+    return 0;
+}
+
 static int iEZLog_CreateLogFile(const EZLog_t *pEZLog, apr_file_t **pLogFile,
                                 apr_pool_t **pFilePool, apr_pool_t *pPool) {
     apr_status_t aprRet = APR_SUCCESS;
@@ -128,20 +142,6 @@ static int iEZLog_RecreateLogFile(const EZLog_t *pEZLog, apr_file_t **pLogFile,
     return 0;
 }
 
-static int iEZLog_WriteFileHeader(const EZLog_t *pEZLog, apr_file_t *pLogFile) {
-    char aHeader[256];
-    apr_time_exp_t tTime;
-    apr_time_exp_lt(&tTime, pEZLog->tCreateTime);
-    snprintf(aHeader, sizeof(aHeader), "-----Header-----\n"
-                                       "Logger Start at "
-                                       "%04d-%02d-%02d %02d:%02d:%02d\n"
-                                       "----------------\n",
-             tTime.tm_year + 1900, tTime.tm_mon + 1, tTime.tm_mday,
-             tTime.tm_hour, tTime.tm_min, tTime.tm_sec);
-    apr_file_write_full(pLogFile, aHeader, strlen(aHeader), NULL);
-    return 0;
-}
-
 static int iEZLog_CreatePath(const EZLog_t *pEZLog) {
     apr_status_t aprRet = APR_SUCCESS;
     aprRet = apr_dir_make(pEZLog->aFilePath, APR_OS_DEFAULT, g_pEZLog_Pool);
@@ -159,12 +159,12 @@ static int iEZLog_GetLogFileCnt(const EZLog_t *pEZLog) {
     int iLogFileCnt = 0;
     aprRet = apr_pool_create(&pLocalPool, pEZLog->pPool);
     if(aprRet != APR_SUCCESS) {
-        return;
+        return 0;
     }
     aprRet = apr_dir_open(&pDir, pEZLog->aFilePath, pLocalPool);
     if(aprRet != APR_SUCCESS) {
         apr_pool_destroy(pLocalPool);
-        return;
+        return 0;
     }
     while(APR_SUCCESS == apr_dir_read(&tFinfo, APR_FINFO_NAME, pDir)) {
         if(strstr(tFinfo.name, pEZLog->aFilePrefix)&&strstr(tFinfo.name, ".log")) {
