@@ -90,17 +90,17 @@ static int iEZLog_WriteFileHeader(const EZLog_t *pEZLog, apr_file_t *pLogFile) {
     char aHeader[256];
     apr_time_exp_t tTime;
     apr_time_exp_lt(&tTime, pEZLog->tCreateTime);
-    snprintf(aHeader, sizeof(aHeader), "-----Header-----\n"
+    snprintf(aHeader, sizeof(aHeader), "-----EZLog-----\n"
         "Logger Start at "
         "%04d-%02d-%02d %02d:%02d:%02d\n"
-        "----------------\n",
+        "---------------\n",
         tTime.tm_year + 1900, tTime.tm_mon + 1, tTime.tm_mday,
         tTime.tm_hour, tTime.tm_min, tTime.tm_sec);
     apr_file_write_full(pLogFile, aHeader, strlen(aHeader), NULL);
     return 0;
 }
 
-static int iEZLog_CreateLogFile(const EZLog_t *pEZLog, apr_file_t **pLogFile,
+static int iEZLog_CreateLogFile(EZLog_t *pEZLog, apr_file_t **pLogFile,
                                 apr_pool_t **pFilePool, apr_pool_t *pPool) {
     apr_status_t aprRet = APR_SUCCESS;
     char aFileName[EZLOG_FULLFILENAME_LEN] = {0};
@@ -119,7 +119,8 @@ static int iEZLog_CreateLogFile(const EZLog_t *pEZLog, apr_file_t **pLogFile,
         return -1;
     }
     iEZLog_WriteFileHeader(pEZLog, *pLogFile);
-
+    if(pEZLog->iMaxLogFile > 0)
+        pEZLog->iLogFileCnt++;
     return 0;
 }
 
@@ -135,7 +136,7 @@ static int iEZLog_CloseLogFile(apr_file_t **pLogFile, apr_pool_t **pFilePool) {
     return 0;
 }
 
-static int iEZLog_RecreateLogFile(const EZLog_t *pEZLog, apr_file_t **pLogFile,
+static int iEZLog_RecreateLogFile(EZLog_t *pEZLog, apr_file_t **pLogFile,
                                   apr_pool_t **pFilePool, apr_pool_t *pPool) {
     int iRet = iEZLog_CloseLogFile(pLogFile, pFilePool);
     iRet = iEZLog_CreateLogFile(pEZLog, pLogFile, pFilePool, pPool);
@@ -177,14 +178,50 @@ static int iEZLog_GetLogFileCnt(const EZLog_t *pEZLog) {
     return iLogFileCnt;
 }
 
-static int iEZLog_RemoveLogFile(const EZLog_t *pEZLog, int iNum) {
+static int iEZLog_RemoveLogFile(EZLog_t *pEZLog, int iNum) {
     int iRmCnt = 0;
+    apr_dir_t *pDir = NULL;
+    apr_pool_t *pLocalPool = NULL;
+    apr_status_t aprRet = APR_SUCCESS;
+    apr_finfo_t tFinfo;
+    int iLogFileCnt = 0;
+    aprRet = apr_pool_create(&pLocalPool, pEZLog->pPool);
+    if (aprRet != APR_SUCCESS) {
+        return 0;
+    }
+    aprRet = apr_dir_open(&pDir, pEZLog->aFilePath, pLocalPool);
+    if (aprRet != APR_SUCCESS) {
+        apr_pool_destroy(pLocalPool);
+        return 0;
+    }
+    while (APR_SUCCESS == apr_dir_read(&tFinfo, APR_FINFO_NAME, pDir)) {
+        if (strstr(tFinfo.name, pEZLog->aFilePrefix) && strstr(tFinfo.name, ".log")) {
+            char aFullName[EZLOG_FULLFILENAME_LEN];
+            snprintf(aFullName, EZLOG_FULLFILENAME_LEN, "%s/%s", pEZLog->aFilePath, tFinfo.name);
+            apr_file_remove(aFullName, pLocalPool);
+            iRmCnt++;
+            if (iRmCnt >= iNum)
+                break;
+        }
+    }
+    //printf("there are %d log file(s) in the path\n", iLogFileCnt);
+    apr_dir_close(pDir);
+    apr_pool_destroy(pLocalPool);
+    return 0;
+}
 
+static int iEZLog_CheckAndRemoveLogFile(EZLog_t *pEZLog) {
+    if (pEZLog->iMaxLogFile <= 0)
+        return 0;
+    if (pEZLog->iLogFileCnt > pEZLog->iMaxLogFile) {
+        iEZLog_RemoveLogFile(pEZLog, pEZLog->iLogFileCnt - pEZLog->iMaxLogFile);
+        pEZLog->iLogFileCnt = pEZLog->iMaxLogFile;
+    }
     return 0;
 }
 
 static void *APR_THREAD_FUNC iEZLog_Thread(apr_thread_t *pThread, void *pData) {
-    // int iRet = 0;
+    //int iRet = 0;
     apr_pool_t *pFilePool = NULL;
     apr_file_t *pFile = NULL;
     apr_status_t aprRet = APR_SUCCESS;
@@ -197,10 +234,11 @@ static void *APR_THREAD_FUNC iEZLog_Thread(apr_thread_t *pThread, void *pData) {
     int iFileSize = 0;
     EZList_tHead_Init(tTmpList);
     iEZLog_CreatePath(pEZLog);
-    iEZLog_CreateLogFile(pEZLog, &pFile, &pFilePool, pEZLog->pPool);
-    if(pEZLog->iMaxLogFile > 0) {
+    if (pEZLog->iMaxLogFile > 0) {
         pEZLog->iLogFileCnt = iEZLog_GetLogFileCnt(pEZLog);
     }
+    iEZLog_CreateLogFile(pEZLog, &pFile, &pFilePool, pEZLog->pPool);
+    iEZLog_CheckAndRemoveLogFile(pEZLog);
     while (1) {
         apr_thread_mutex_lock(pEZLog->pMutex);
         if (EZList_Empty(&pEZLog->tItemHead)) {
@@ -232,6 +270,7 @@ static void *APR_THREAD_FUNC iEZLog_Thread(apr_thread_t *pThread, void *pData) {
                 if (iFileSize > EZLOG_FILE_SIZE) {
                     iEZLog_RecreateLogFile(pEZLog, &pFile, &pFilePool,
                                            pEZLog->pPool);
+                    iEZLog_CheckAndRemoveLogFile(pEZLog);
                     iFileSize = 0;
                 }
             }
@@ -316,7 +355,7 @@ static void iEZLog_ConstructHeader(char *pStrBuf, EZLog_t *pEZLog,
     apr_time_exp_lt(&tTime, apr_time_now());
     pBuf = pStrBuf;
     *pBuf++ = g_aLogType[iLogLevel];
-    snprintf(pBuf, EZLOG_MODTAG_LEN + 1, g_aModTagFmt, pModName);
+    snprintf(pBuf, EZLOG_MODTAG_LEN + 1, g_aModTagFmt, pModName?pModName:"");
     pBuf += EZLOG_MODTAG_LEN;
     snprintf(pBuf, EZLOG_TIMESTAMP_LEN + 1, "[%02d:%02d:%02d.%03d] ",
              tTime.tm_hour, tTime.tm_min, tTime.tm_sec, tTime.tm_usec / 1000);
@@ -338,12 +377,16 @@ static void iEZLog_SetInitParam(EZLog_t *pEZLog,
     if(pEZLog->iMaxLogFile > 1024) {
         pEZLog->iMaxLogFile = 1024;
     }
+    pEZLog->iLogLevel = pParam->tLogLevel;
+    pEZLog->iConsole = pParam->iConsleOutPut;
     return;
 }
 
 static void iEZLog_SetDefParam(EZLog_t *pEZLog) {
     strcpy(pEZLog->aFilePath, "ezlog");
     strcpy(pEZLog->aFilePrefix, "ezlog");
+    pEZLog->iLogLevel = EZLOG_DEBUG;
+    pEZLog->iConsole = 1;
     return;
 }
 

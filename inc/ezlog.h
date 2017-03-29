@@ -19,18 +19,20 @@ extern "C" {
 
 typedef struct EZLog_t EZLog_t;
 
-typedef struct _EZLog_InitParam_s {
-    char aFilePath[EZLOG_PATH_LEN];
-    char aFilePrefix[EZLOG_FILE_PREFIX_LEN];
-    int iMaxLogFile;
-} EZLog_InitParam_t;
-
 typedef enum _EZLogLevel_e {
     EZLOG_ERR = 0,
     EZLOG_WARN,
     EZLOG_INFO,
     EZLOG_DEBUG
 } EZLogLevel_t;
+
+typedef struct _EZLog_InitParam_s {
+    EZLogLevel_t tLogLevel;
+    int iConsleOutPut;
+    char aFilePath[EZLOG_PATH_LEN];
+    char aFilePrefix[EZLOG_FILE_PREFIX_LEN];
+    int iMaxLogFile;
+} EZLog_InitParam_t;
 
 int EZLog_Init(EZLog_t **ppEZLog, const EZLog_InitParam_t *pParam);
 int EZLog_Uninit(EZLog_t *pEZLog);
